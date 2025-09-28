@@ -305,7 +305,7 @@ async def optimize_onnx_model(
         providers=['CPUExecutionProvider']
     )
     
-    # Measure optimized latency
+    
     start_time = asyncio.get_event_loop().time()
     for _ in range(10):  # Average over 10 runs
         optimized_session.run(None, {input_name: dummy_input})
