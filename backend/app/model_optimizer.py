@@ -1,3 +1,5 @@
+# app/model_optimizer.py
+
 import tensorflow as tf
 import torch
 import onnx
@@ -17,7 +19,6 @@ async def optimize_model(
     Returns the path to optimized model and performance metrics.
     """
     model_format = Path(model_path).suffix.lower()
-    metrics = {}
 
     try:
         if model_format in ['.h5', '.pb']:
@@ -32,6 +33,8 @@ async def optimize_model(
     except Exception as e:
         raise Exception(f"Model optimization failed: {str(e)}")
 
+# ---------------------- TensorFlow ----------------------
+
 async def optimize_tensorflow_model(
     model_path: str,
     target_device: str,
@@ -39,71 +42,58 @@ async def optimize_tensorflow_model(
 ) -> Tuple[str, Dict]:
     """Optimize TensorFlow model"""
     model = tf.keras.models.load_model(model_path)
-    
+
     # Get original metrics
     original_size = Path(model_path).stat().st_size / (1024 * 1024)  # MB
-    
-    # Measure original latency
+
+    # Create dummy input
     input_shape = model.input_shape[1:]
-    dummy_input = np.random.random((1,) + input_shape)
+    dummy_input = np.random.random((1,) + input_shape).astype(np.float32)
+
+    # Measure original latency
     start_time = asyncio.get_event_loop().time()
-    for _ in range(10):  # Average over 10 runs
+    for _ in range(10):
         model.predict(dummy_input)
     original_latency = (asyncio.get_event_loop().time() - start_time) * 100  # ms
 
-    # Create representative dataset generator
+    # Representative dataset for int8 quantization
     def representative_dataset():
-        for _ in range(100):  # Generate 100 sample inputs
-            input_shape = (1,) + model.input_shape[1:]
-            sample_input = np.random.random(input_shape).astype(np.float32)
+        for _ in range(100):
+            sample_input = np.random.random((1,) + input_shape).astype(np.float32)
             yield [sample_input]
 
-    # Apply optimizations based on target device
+    # Apply optimizations
     if target_device == "cpu":
-        # CPU Optimizations
         converter = tf.lite.TFLiteConverter.from_keras_model(model)
         converter.optimizations = [tf.lite.Optimize.DEFAULT]
-        
-        # Use float16 quantization for CPU
         converter.target_spec.supported_types = [tf.float16]
         converter.target_spec.supported_ops = [
             tf.lite.OpsSet.TFLITE_BUILTINS,
             tf.lite.OpsSet.SELECT_TF_OPS
         ]
-        optimized_model = converter.convert()
-    
-    elif target_device == "gpu":
-        # GPU Optimizations
-        converter = tf.lite.TFLiteConverter.from_keras_model(model)
-        converter.optimizations = [tf.lite.Optimize.DEFAULT]
-        
-        # Use float16 quantization for GPU
-        converter.target_spec.supported_types = [tf.float16]
-        converter.target_spec.supported_ops = [
-            tf.lite.OpsSet.TFLITE_BUILTINS,
-            tf.lite.OpsSet.SELECT_TF_OPS
-        ]
-        # Enable GPU delegate
-        converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_GPU]
         optimized_model = converter.convert()
 
-    else:  # TPU
-        # TPU Optimizations
+    elif target_device == "gpu":
         converter = tf.lite.TFLiteConverter.from_keras_model(model)
         converter.optimizations = [tf.lite.Optimize.DEFAULT]
-        
-        # Configure for full integer quantization
-        converter.representative_dataset = representative_dataset
+        converter.target_spec.supported_types = [tf.float16]
         converter.target_spec.supported_ops = [
-            tf.lite.OpsSet.TFLITE_BUILTINS_INT8
+            tf.lite.OpsSet.TFLITE_BUILTINS,
+            tf.lite.OpsSet.SELECT_TF_OPS
         ]
-        # Force full integer quantization
+        optimized_model = converter.convert()
+
+    else:  # TPU / int8 fallback
+        converter = tf.lite.TFLiteConverter.from_keras_model(model)
+        converter.optimizations = [tf.lite.Optimize.DEFAULT]
+        converter.representative_dataset = representative_dataset
+        converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
         converter.inference_input_type = tf.int8
         converter.inference_output_type = tf.int8
         try:
             optimized_model = converter.convert()
-        except Exception as e:
-            # Fallback to float16 quantization if int8 fails
+        except Exception:
+            # fallback float16 if int8 fails
             converter = tf.lite.TFLiteConverter.from_keras_model(model)
             converter.optimizations = [tf.lite.Optimize.DEFAULT]
             converter.target_spec.supported_types = [tf.float16]
@@ -117,16 +107,20 @@ async def optimize_tensorflow_model(
     with open(output_path, 'wb') as f:
         f.write(optimized_model)
 
-    # Get optimization metrics
-    optimized_size = Path(output_path).stat().st_size / (1024 * 1024)  # MB
-    
+    # Get optimized size
+    optimized_size = Path(output_path).stat().st_size / (1024 * 1024)
+
     # Measure optimized latency
     interpreter = tf.lite.Interpreter(model_path=output_path)
     interpreter.allocate_tensors()
     input_details = interpreter.get_input_details()
-    
+    input_shape = input_details[0]['shape']
+    input_dtype = input_details[0]['dtype']
+
+    dummy_input = (np.random.random(input_shape) * 255).astype(input_dtype)
+
     start_time = asyncio.get_event_loop().time()
-    for _ in range(10):  # Average over 10 runs
+    for _ in range(10):
         interpreter.set_tensor(input_details[0]['index'], dummy_input)
         interpreter.invoke()
     optimized_latency = (asyncio.get_event_loop().time() - start_time) * 100  # ms
@@ -141,6 +135,8 @@ async def optimize_tensorflow_model(
 
     return output_path, metrics
 
+# ---------------------- PyTorch ----------------------
+
 async def optimize_pytorch_model(
     model_path: str,
     target_device: str,
@@ -149,65 +145,38 @@ async def optimize_pytorch_model(
     """Optimize PyTorch model"""
     model = torch.load(model_path)
     model.eval()
-    
-    # Get original metrics
-    original_size = Path(model_path).stat().st_size / (1024 * 1024)  # MB
-    
-    # Get input shape from model
-    # This is an example, adjust based on your model's expected input
-    if hasattr(model, 'input_shape'):
-        input_shape = model.input_shape
-    else:
-        # Default shape if not specified
-        input_shape = (1, 3, 224, 224)
-    
+
+    original_size = Path(model_path).stat().st_size / (1024 * 1024)
+
+    input_shape = (1, 3, 224, 224)
     dummy_input = torch.randn(input_shape)
-    
-    # Measure original latency
+
     start_time = asyncio.get_event_loop().time()
     with torch.no_grad():
-        for _ in range(10):  # Average over 10 runs
+        for _ in range(10):
             model(dummy_input)
-    original_latency = (asyncio.get_event_loop().time() - start_time) * 100  # ms
+    original_latency = (asyncio.get_event_loop().time() - start_time) * 100
 
-    # Apply optimizations
     if target_device == "cpu":
-        # CPU Optimizations
-        # 1. Quantization
         model_quantized = torch.quantization.quantize_dynamic(
-            model,
-            {torch.nn.Linear, torch.nn.Conv2d},
-            dtype=torch.qint8
+            model, {torch.nn.Linear, torch.nn.Conv2d}, dtype=torch.qint8
         )
-        
-        # 2. Fusion of operations
         model_quantized = torch.jit.script(model_quantized)
-        
-        # Save optimized model
         torch.jit.save(model_quantized, output_path)
         optimized_model = model_quantized
-        
-    else:  # GPU
-        # GPU Optimizations
-        # 1. TorchScript compilation
+    else:
         traced_model = torch.jit.trace(model, dummy_input)
-        
-        # 2. Fusion optimizations
         frozen_model = torch.jit.freeze(traced_model)
-        
-        # Save optimized model
         torch.jit.save(frozen_model, output_path)
         optimized_model = frozen_model
 
-    # Get optimization metrics
-    optimized_size = Path(output_path).stat().st_size / (1024 * 1024)  # MB
-    
-    # Measure optimized latency
+    optimized_size = Path(output_path).stat().st_size / (1024 * 1024)
+
     start_time = asyncio.get_event_loop().time()
     with torch.no_grad():
-        for _ in range(10):  # Average over 10 runs
+        for _ in range(10):
             optimized_model(dummy_input)
-    optimized_latency = (asyncio.get_event_loop().time() - start_time) * 100  # ms
+    optimized_latency = (asyncio.get_event_loop().time() - start_time) * 100
 
     metrics = {
         "original_size_mb": original_size,
@@ -219,97 +188,65 @@ async def optimize_pytorch_model(
 
     return output_path, metrics
 
+# ---------------------- ONNX ----------------------
+
 async def optimize_onnx_model(
     model_path: str,
     target_device: str,
     output_path: str
 ) -> Tuple[str, Dict]:
     """Optimize ONNX model"""
-    # Load and check model
     model = onnx.load(model_path)
     onnx.checker.check_model(model)
-    
-    # Get original metrics
-    original_size = Path(model_path).stat().st_size / (1024 * 1024)  # MB
-    
-    # Create inference session for original model
+
+    original_size = Path(model_path).stat().st_size / (1024 * 1024)
+
     sess_options = onnxruntime.SessionOptions()
     original_session = onnxruntime.InferenceSession(
-        model_path, 
-        sess_options,
-        providers=['CPUExecutionProvider']
+        model_path, sess_options, providers=['CPUExecutionProvider']
     )
 
-    # Get input shape and create dummy input
     input_name = original_session.get_inputs()[0].name
-    input_shape = original_session.get_inputs()[0].shape
+    input_shape = [dim if isinstance(dim, int) else 1 for dim in original_session.get_inputs()[0].shape]
     dummy_input = np.random.random(input_shape).astype(np.float32)
-    
-    # Measure original latency
-    start_time = asyncio.get_event_loop().time()
-    for _ in range(10):  # Average over 10 runs
-        original_session.run(None, {input_name: dummy_input})
-    original_latency = (asyncio.get_event_loop().time() - start_time) * 100  # ms
 
-    # Optimize model based on target device
+    start_time = asyncio.get_event_loop().time()
+    for _ in range(10):
+        original_session.run(None, {input_name: dummy_input})
+    original_latency = (asyncio.get_event_loop().time() - start_time) * 100
+
+    sess_options = onnxruntime.SessionOptions()
+    sess_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
+    sess_options.optimized_model_filepath = output_path
+
     if target_device == "cpu":
-        # CPU Optimizations
-        sess_options = onnxruntime.SessionOptions()
-        sess_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
-        sess_options.optimized_model_filepath = output_path
-        sess_options.intra_op_num_threads = 4
-        sess_options.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
-        
-        # Enable memory optimizations
-        sess_options.enable_mem_pattern = True
-        sess_options.enable_mem_reuse = True
-        
         _ = onnxruntime.InferenceSession(
-            model_path,
-            sess_options,
-            providers=['CPUExecutionProvider']
+            model_path, sess_options, providers=['CPUExecutionProvider']
         )
-        
-    else:  # GPU
-        # GPU Optimizations
-        sess_options = onnxruntime.SessionOptions()
-        sess_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
-        sess_options.optimized_model_filepath = output_path
-        
-        # Enable CUDA specific optimizations
+    else:
         providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
         provider_options = [
             {
                 'device_id': 0,
                 'arena_extend_strategy': 'kNextPowerOfTwo',
-                'gpu_mem_limit': 2 * 1024 * 1024 * 1024,  # 2GB
+                'gpu_mem_limit': 2 * 1024 * 1024 * 1024,
                 'cudnn_conv_algo_search': 'EXHAUSTIVE',
                 'do_copy_in_default_stream': True,
             },
             {}
         ]
-        
         _ = onnxruntime.InferenceSession(
-            model_path,
-            sess_options,
-            providers=providers,
-            provider_options=provider_options
+            model_path, sess_options, providers=providers, provider_options=provider_options
         )
 
-    # Get optimization metrics
-    optimized_size = Path(output_path).stat().st_size / (1024 * 1024)  # MB
-    
-    # Create inference session for optimized model
-    optimized_session = onnxruntime.InferenceSession(
-        output_path,
-        providers=['CPUExecutionProvider']
-    )
-    
-    
+    optimized_size = Path(output_path).stat().st_size / (1024 * 1024)
+
+    optimized_session = onnxruntime.InferenceSession(output_path, providers=['CPUExecutionProvider'])
+
     start_time = asyncio.get_event_loop().time()
-    for _ in range(10):  # Average over 10 runs
+    for _ in range(10):
         optimized_session.run(None, {input_name: dummy_input})
-    optimized_latency = (asyncio.get_event_loop().time() - start_time) * 100  # ms
+    optimized_latency = (asyncio.get_event_loop().time() - start_time) * 100
 
     metrics = {
         "original_size_mb": original_size,
