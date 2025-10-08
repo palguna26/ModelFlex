@@ -18,7 +18,7 @@ const FileUploader = ({ title, description, onChange }) => {
   };
 
   return (
-    <div className="mt-8 w-full max-w-3xl">
+    <div className="mt-8 w-full max-w-3xl bg-center flex-items-center flex-col">
       {/* Section Title */}
       <div className="mb-4 text-xl font-semibold text-gray-900 dark:text-blue-800">
         1. Upload Model

@@ -50,73 +50,74 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
-      <main className="container mx-auto px-4 py-8">
-        <div className="max-w-4xl mx-auto">
-          {/* File Upload Section */}
-          <FileUploader
-            title="Upload ML Model"
-            description="Supported formats: .h5, .pb, .pt, .pth, .onnx, .pkl"
-            onChange={file => {
-              setUploadedFile(file);
-              setError(null);
-            }}
-          />
+      <main className="flex flex-col items-center justify-center px-4 py-8">
+  <div className="w-full max-w-4xl flex flex-col items-center">
+    {/* File Upload Section */}
+    <FileUploader
+      title="Upload ML Model"
+      description="Supported formats: .h5, .pb, .pt, .pth, .onnx, .pkl"
+      onChange={file => {
+        setUploadedFile(file);
+        setError(null);
+      }}
+    />
 
-          {/* Device Selection */}
-          <TargetDeviceSelector 
-            onSelect={device => {
-              setSelectedDevice(device);
-              setError(null);
-            }}
-          />
+    {/* Device Selection */}
+    <TargetDeviceSelector 
+      onSelect={device => {
+        setSelectedDevice(device);
+        setError(null);
+      }}
+    />
 
-          {/* Action Button */}
-          <div className="mt-8 flex justify-center">
-            <PrimaryRoundedButton
-              onClick={handleOptimize}
-              disabled={!uploadedFile || !selectedDevice || isOptimizing}
-            >
-              {isOptimizing ? "Optimizing..." : "Optimize Model"}
-            </PrimaryRoundedButton>
-          </div>
+    {/* Action Button */}
+    <div className="mt-8">
+      <PrimaryRoundedButton
+        onClick={handleOptimize}
+        disabled={!uploadedFile || !selectedDevice || isOptimizing}
+      >
+        {isOptimizing ? "Optimizing..." : "Optimize Model"}
+      </PrimaryRoundedButton>
+    </div>
 
-          {/* Error Display */}
-          {error && (
-            <Card
-              className="mt-6 bg-red-50 border-red-200"
-              title="Error"
-              description={error}
-            />
-          )}
+    {/* Error Display */}
+    {error && (
+      <Card
+        className="mt-6 bg-red-50 border-red-200 text-center"
+        title="Error"
+        description={error}
+      />
+    )}
 
-          {/* Results Display */}
-          {optimizationResults && !error && (
-            <div className="mt-8">
-              <Card
-                title="Optimization Results"
-                description={
-                  <div className="space-y-2">
-                    <p>Original Size: {optimizationResults.metrics.original_size_mb.toFixed(2)} MB</p>
-                    <p>Optimized Size: {optimizationResults.metrics.optimized_size_mb.toFixed(2)} MB</p>
-                    <p>Size Reduction: {optimizationResults.metrics.size_reduction_percent.toFixed(1)}%</p>
-                    <p>Original Latency: {optimizationResults.metrics.original_latency_ms.toFixed(2)} ms</p>
-                    <p>Optimized Latency: {optimizationResults.metrics.optimized_latency_ms.toFixed(2)} ms</p>
-                  </div>
-                }
-              />
-              
-              <div className="mt-4 flex justify-center">
-                <PrimaryRoundedButton
-                  onClick={() => window.location.href = `/api/download/${optimizationResults.optimized_model}`}
-                  disabled={isOptimizing}
-                >
-                  Download Optimized Model
-                </PrimaryRoundedButton>
-              </div>
+    {/* Results Display */}
+    {optimizationResults && !error && (
+      <div className="mt-8 w-full flex flex-col items-center">
+        <Card
+          title="Optimization Results"
+          description={
+            <div className="space-y-2 text-center">
+              <p>Original Size: {optimizationResults.metrics.original_size_mb.toFixed(2)} MB</p>
+              <p>Optimized Size: {optimizationResults.metrics.optimized_size_mb.toFixed(2)} MB</p>
+              <p>Size Reduction: {optimizationResults.metrics.size_reduction_percent.toFixed(1)}%</p>
+              <p>Original Latency: {optimizationResults.metrics.original_latency_ms.toFixed(2)} ms</p>
+              <p>Optimized Latency: {optimizationResults.metrics.optimized_latency_ms.toFixed(2)} ms</p>
             </div>
-          )}
+          }
+        />
+
+        <div className="mt-4">
+          <PrimaryRoundedButton
+            onClick={() => window.location.href = `/api/download/${optimizationResults.optimized_model}`}
+            disabled={isOptimizing}
+          >
+            Download Optimized Model
+          </PrimaryRoundedButton>
         </div>
-      </main>
+      </div>
+    )}
+  </div>
+</main>
+
     </div>
   );
 }
