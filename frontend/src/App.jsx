@@ -48,23 +48,26 @@ function App() {
 
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="App">
       <Navbar />
-      <main className="flex flex-col items-center justify-center px-4 py-8">
-  <div className="w-full max-w-4xl flex flex-col items-center">
+  <main
+  className="flex flex-col items-center justify-center px-4 py-8 min-h-screen bg-gradient-to-br from-sky-300 via-cyan-50 to-sky-200"
+  style={{ marginTop: "0px" }}
+>
+  <div className="bg-white rounded-2xl shadow-xl p-10 w-full max-w-4xl flex flex-col items-center">
     {/* File Upload Section */}
     <FileUploader
       title="Upload ML Model"
       description="Supported formats: .h5, .pb, .pt, .pth, .onnx, .pkl"
-      onChange={file => {
+      onChange={(file) => {
         setUploadedFile(file);
         setError(null);
       }}
     />
 
     {/* Device Selection */}
-    <TargetDeviceSelector 
-      onSelect={device => {
+    <TargetDeviceSelector
+      onSelect={(device) => {
         setSelectedDevice(device);
         setError(null);
       }}
@@ -83,7 +86,7 @@ function App() {
     {/* Error Display */}
     {error && (
       <Card
-        className="mt-6 bg-red-50 border-red-200 text-center"
+        className="mt-6 bg-red-50 border border-red-200 text-center"
         title="Error"
         description={error}
       />
@@ -107,7 +110,9 @@ function App() {
 
         <div className="mt-4">
           <PrimaryRoundedButton
-            onClick={() => window.location.href = `/api/download/${optimizationResults.optimized_model}`}
+            onClick={() =>
+              (window.location.href = `/api/download/${optimizationResults.optimized_model}`)
+            }
             disabled={isOptimizing}
           >
             Download Optimized Model
