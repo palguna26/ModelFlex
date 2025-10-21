@@ -1,8 +1,8 @@
 import React from 'react';
 const Navbar = () => {
     return (
-        <div className="navbar sticky top-0 text-white bg-gradient-to-r from-blue-600 via-blue-400 to-blue-600 border-b border-black-700 w-full p-4 flex justify-between items-center">
-            <h1 className='w-full font-bold text-xl backdrop-blur-2xl text-shadow-blue-600 text-white size-12/2 '>ModelFlex</h1>
+        <div className="navbar sticky top-0 text-white bg-gradient-to-r from-sky-400 via-cyan-300 to-sky-600 shadow-md backdrop-blur-sm z-50 border-b border-black-700 w-full p-4 flex justify-between items-center">
+            <h1 className='w-full font-bold text-xl backdrop-blur-2xl text-shadow-blue-600 text-white size-18/2 '>ModelFlex</h1>
             <nav>
                 <ul className="flex gap-8">
                     <li className="relative group cursor-pointer inline-block">
