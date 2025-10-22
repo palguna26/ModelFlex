@@ -1,129 +1,117 @@
-# ModelFlex: ML Model Optimization Tool
+## ModelFlex — ML Model Optimization
 
-ModelFlex is a powerful web-based tool for optimizing machine learning models across different frameworks and target devices. It provides an intuitive interface for model compression, optimization, and deployment.
+ModelFlex is a small full‑stack application that helps you optimize ML models for deployment. It supports TensorFlow, PyTorch and ONNX formats and applies device‑specific optimizations (CPU, GPU, TPU when applicable).
 
-## Features
+This README focuses on how to run the project locally, what the backend API exposes, and troubleshooting tips specific to this repository layout.
 
-- **Multi-Framework Support**
-  - TensorFlow (.h5, .pb)
-  - PyTorch (.pt, .pth)
-  - ONNX (.onnx)
+## Project layout (relevant files)
 
-- **Target Device Optimization**
-  - CPU optimization with quantization
-  - GPU acceleration
-  - TPU compatibility (TensorFlow models)
+- `frontend/` — React + Vite frontend (dev server runs on :5173)
+- `backend/` — FastAPI backend (ASGI app at `app.main:app`)
+  - `backend/app/main.py` — API endpoints: `/api/optimize`, `/api/download/{filename}`
+  - `backend/app/model_optimizer.py` — model optimization logic
+  - `backend/run.py` — simple runner that starts Uvicorn
+  - `backend/requirements.txt` — Python dependencies
+- `README.md` — this file
 
-- **Optimization Techniques**
-  - Model quantization (INT8, FP16)
-  - Operation fusion
-  - Graph optimization
-  - Memory optimization
-  - Platform-specific optimizations
+## Quick start (Windows / PowerShell)
 
-- **Performance Metrics**
-  - Model size reduction
-  - Inference latency
-  - Detailed comparison reports
+1) Backend — create venv and install dependencies
 
-## Tech Stack
-
-### Frontend
-- React with Vite
-- TailwindCSS for styling
-- Modern component architecture
-- Real-time progress tracking
-
-### Backend
-- FastAPI (Python)
-- Async processing
-- Multiple ML framework support
-- Efficient file handling
-
-## Getting Started
-
-### Prerequisites
-- Python 3.9+
-- Node.js 16+
-- NPM or Yarn
-- CUDA toolkit (optional, for GPU support)
-
-### Installation
-
-1. Clone the repository:
-```bash
-git clone https://github.com/yourusername/ModelFlex.git
-cd ModelFlex
-```
-
-2. Set up the backend:
-```bash
+```powershell
 cd backend
-python -m venv venv
-source venv/bin/activate  # On Windows: .\venv\Scripts\activate
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-3. Set up the frontend:
-```bash
-cd frontend
-npm install
-```
+2) Start the backend (from `backend/`)
 
-### Running the Application
+```powershell
+# either using the run helper
+python run.py
 
-1. Start the backend server:
-```bash
-cd backend
-source venv/bin/activate  # On Windows: .\venv\Scripts\activate
+# or directly with uvicorn
 python -m uvicorn app.main:app --reload
 ```
 
-2. Start the frontend development server:
-```bash
+Backend will be available at: http://127.0.0.1:8000
+
+3) Frontend
+
+```powershell
 cd frontend
+npm install
 npm run dev
 ```
 
-3. Open your browser and navigate to `http://localhost:5173`
+Frontend dev server defaults to http://localhost:5173. The frontend expects the backend at `http://127.0.0.1:8000` (CORS is configured for `:5173`).
 
-## Usage
+## Backend API
 
-1. Upload your ML model (.h5, .pb, .pt, .pth, or .onnx format)
-2. Select your target device (CPU, GPU, or TPU)
-3. Click "Optimize Model"
-4. View optimization results and download the optimized model
+POST /api/optimize
+- Content-Type: multipart/form-data
+- Form fields:
+  - `file` — uploaded model file
+  - `target_device` — string (one of `cpu`, `gpu`, `tpu`)
 
-## Optimization Details
+Response (200):
+```
+{
+  "optimized_model": "opt_<uuid>.<ext>",
+  "metrics": {
+    "original_size_mb": float,
+    "optimized_size_mb": float,
+    "size_reduction_percent": float,
+    "original_latency_ms": float,
+    "optimized_latency_ms": float
+  }
+}
+```
 
-### TensorFlow Models
-- CPU: FP16 quantization, operation fusion
-- GPU: GPU-specific optimizations, FP16 support
-- TPU: INT8 quantization with fallback options
+GET /api/download/{filename}
+- Returns the optimized model file as an octet stream.
 
-### PyTorch Models
-- CPU: Dynamic quantization, operation fusion
-- GPU: TorchScript compilation, CUDA optimizations
+## Notes about the optimizer
 
-### ONNX Models
-- CPU: Multi-threading, memory optimizations
-- GPU: CUDA execution provider, graph optimizations
+- `backend/app/model_optimizer.py` currently attempts real optimizations for TensorFlow, PyTorch and ONNX. Depending on the model and installed packages, conversion/quantization may be slow and require additional system libraries (for GPU support or specific TensorFlow builds).
+- TPU optimization requires representative data for full integer quantization. The implementation falls back to FP16 quantization when full integer quantization fails.
+
+## Troubleshooting
+
+- If `uvicorn` fails to import the app as `app.main:app`, confirm you are running the command from the `backend/` folder and that `backend` is the current working directory.
+- On Windows PowerShell use `.\.venv\Scripts\Activate.ps1` to activate the virtualenv before installing or running.
+- TensorFlow/PyTorch/ONNX installations can be large and sometimes fail on Windows without the right wheel for your Python version. If `pip install -r requirements.txt` errors on a package, try installing the package separately or use the CPU-only variants (for example `pip install tensorflow-cpu` if available for your platform).
+- If quantization fails with "representative_dataset must be specified", the optimizer now includes a synthetic representative dataset, but for best results provide a real sample dataset or adjust the optimizer to accept a dataset path.
+
+## Local testing recommendations
+
+- Start the backend and confirm the OpenAPI docs at `http://127.0.0.1:8000/docs` load.
+- Use the frontend to perform an end‑to‑end flow or test the backend using `curl` / `httpie`:
+
+```powershell
+# example using curl (PowerShell)
+curl -F "file=@C:\path\to\model.onnx" -F "target_device=cpu" http://127.0.0.1:8000/api/optimize
+```
+
+## Development notes
+
+- The FastAPI app accepts files to the `uploads/` folder and writes optimized artifacts to `optimized/` inside `backend/`.
+- The frontend expects the optimized filename in the JSON response and requests the download from `/api/download/<filename>`.
 
 ## Contributing
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+If you want to help improve ModelFlex:
+
+1. Open a new branch for your change
+2. Add tests for new behavior (if applicable)
+3. Run frontend and backend locally to verify end‑to‑end
+4. Create a PR with a clear description of changes
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT
 
-## Acknowledgments
-
-- TensorFlow team for TFLite conversion tools
-- PyTorch team for quantization and TorchScript
-- ONNX Runtime team for optimization capabilities
-- FastAPI team for the excellent web framework
+---
+Timestamp: October 22, 2025
