@@ -1,60 +1,61 @@
 import torch
-import onnx 
-import onnxruntime
-import numpy as np
+import time
 from pathlib import Path
-import asyncio
 from typing import Tuple, Dict
 
-# ---------------------- PyTorch ----------------------
-
-async def optimize_pytorch_model(
+def optimize_pytorch_model(
     model_path: str,
     target_device: str,
     output_path: str
 ) -> Tuple[str, Dict]:
-    """Optimize PyTorch model"""
-    model = torch.load(model_path)
-    model.eval()
+    """Optimize PyTorch model using quantization or TorchScript tracing."""
+
+    device = torch.device("cuda" if target_device == "gpu" and torch.cuda.is_available() else "cpu")
+
+    # Load model safely
+    model = torch.load(model_path, map_location=device)
+    model.eval().to(device)
 
     original_size = Path(model_path).stat().st_size / (1024 * 1024)
-
     input_shape = (1, 3, 224, 224)
-    dummy_input = torch.randn(input_shape)
+    dummy_input = torch.randn(input_shape, device=device)
 
-    start_time = asyncio.get_event_loop().time()
+    # Measure original latency
     with torch.no_grad():
+        start_time = time.perf_counter()
         for _ in range(10):
-            model(dummy_input)
-    original_latency = (asyncio.get_event_loop().time() - start_time) * 100
+            _ = model(dummy_input)
+        original_latency = (time.perf_counter() - start_time) * 1000  # ms
 
-    if target_device == "cpu":
-        model_quantized = torch.quantization.quantize_dynamic(
-            model, {torch.nn.Linear, torch.nn.Conv2d}, dtype=torch.qint8
+    # Optimization
+    if device.type == "cpu":
+        optimized_model = torch.quantization.quantize_dynamic(
+            model, {torch.nn.Linear}, dtype=torch.qint8
         )
-        model_quantized = torch.jit.script(model_quantized)
-        torch.jit.save(model_quantized, output_path)
-        optimized_model = model_quantized
+        scripted_model = torch.jit.script(optimized_model)
     else:
-        traced_model = torch.jit.trace(model, dummy_input)
-        frozen_model = torch.jit.freeze(traced_model)
-        torch.jit.save(frozen_model, output_path)
-        optimized_model = frozen_model
+        with torch.no_grad():
+            traced_model = torch.jit.trace(model, dummy_input)
+            scripted_model = torch.jit.freeze(traced_model)
+
+    torch.jit.save(scripted_model, output_path)
 
     optimized_size = Path(output_path).stat().st_size / (1024 * 1024)
 
-    start_time = asyncio.get_event_loop().time()
+    # Measure optimized latency
     with torch.no_grad():
+        start_time = time.perf_counter()
         for _ in range(10):
-            optimized_model(dummy_input)
-    optimized_latency = (asyncio.get_event_loop().time() - start_time) * 100
+            _ = scripted_model(dummy_input)
+        optimized_latency = (time.perf_counter() - start_time) * 1000
 
     metrics = {
-        "original_size_mb": original_size,
-        "optimized_size_mb": optimized_size,
-        "size_reduction_percent": ((original_size - optimized_size) / original_size) * 100,
-        "original_latency_ms": original_latency,
-        "optimized_latency_ms": optimized_latency
+        "original_size_mb": round(original_size, 3),
+        "optimized_size_mb": round(optimized_size, 3),
+        "size_reduction_percent": round(((original_size - optimized_size) / original_size) * 100, 3),
+        "original_latency_ms": round(original_latency, 3),
+        "optimized_latency_ms": round(optimized_latency, 3),
+        "latency_improvement_percent": round(((original_latency - optimized_latency) / original_latency) * 100, 3)
     }
 
     return output_path, metrics
